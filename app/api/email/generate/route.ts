@@ -24,7 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { render } from '@react-email/render';
 import AvailabilityEmail from '@/emails/availability-email';
-import { PersistenceService } from '@/lib/data/persistence';
+import { persistence } from '@/lib/data/persistence';
 import { format, addDays, isBefore, startOfDay } from 'date-fns';
 import type { VerifiedDate } from '@/types/email';
 
@@ -85,9 +85,6 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-
-    // Initialize persistence service
-    const persistence = PersistenceService.getInstance(instructorEmail);
 
     // Load availability data from persistent store
     const availabilityData = await persistence.loadAvailability();
