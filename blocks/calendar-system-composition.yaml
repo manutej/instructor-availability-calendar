@@ -1,0 +1,405 @@
+# Calendar Availability System - Block Composition
+# Generated from /blocks command analysis
+# Version: 1.0.0
+# Complexity: L5 (Moderate-High)
+
+name: calendar-availability-system
+type: block_composition
+version: 1.0.0
+complexity_tier: L5
+
+metadata:
+  description: "Instructor calendar availability system with Google Calendar MCP integration"
+  use_case: "Solopreneur scheduling tool - Airbnb blocking + Calendly simplicity"
+  target_users: "Instructors, coaches, consultants booked by day/half-day/hour"
+  speed_priority: "MVP in 9-13 hours"
+  design_philosophy: "Occam's razor - minimal viable feature set"
+
+# ============================================================================
+# BLOCK COMPOSITION
+# ============================================================================
+
+composition:
+  global_modifiers:
+    quality_threshold: 0.85
+    budget: auto
+    catch: halt
+    fallback: return-best
+    merge: concatenate
+
+  stages:
+    # ========================================================================
+    # STAGE 1: PARALLEL DOMAIN ASSESSMENT
+    # ========================================================================
+    - stage: 1
+      name: parallel_domain_assessment
+      type: parallel
+      operator: "||"
+      blocks:
+        - name: assess_ui_design
+          function: assess_domain
+          config:
+            domain: UI_DESIGN
+            focus:
+              - airbnb_style_blocking
+              - calendly_simplicity
+              - minimalist_solopreneur_aesthetic
+              - drag_drop_interaction
+              - mobile_responsive
+            complexity: HIGH
+            key_challenge: "Balancing visual richness with simplicity"
+          output_type: DomainAssessment_UIDesign
+
+        - name: assess_calendar_api
+          function: assess_domain
+          config:
+            domain: CALENDAR_API
+            focus:
+              - google_calendar_mcp_integration
+              - read_existing_events
+              - write_new_bookings
+              - conflict_resolution
+              - real_time_sync
+            complexity: MODERATE
+            key_challenge: "Real-time sync and conflict detection"
+          output_type: DomainAssessment_CalendarAPI
+
+        - name: assess_booking_logic
+          function: assess_domain
+          config:
+            domain: BOOKING_LOGIC
+            focus:
+              - full_day_half_day_hourly_slots
+              - block_days_for_travel
+              - text_based_availability_parsing
+              - constraint_validation
+              - timezone_handling
+            complexity: MODERATE_HIGH
+            key_challenge: "Flexible slot sizing and validation"
+          output_type: DomainAssessment_BookingLogic
+
+        - name: assess_state_management
+          function: assess_domain
+          config:
+            domain: STATE_MANAGEMENT
+            focus:
+              - real_time_availability_context
+              - optimistic_ui_updates
+              - conflict_resolution
+              - persistence_layer
+              - undo_redo_functionality
+            complexity: MODERATE
+            key_challenge: "Maintaining consistency across views"
+          output_type: DomainAssessment_StateManagement
+
+      merge_strategy: concatenate
+      output_type: CombinedDomainAssessment
+
+    # ========================================================================
+    # STAGE 2: TIER SELECTION
+    # ========================================================================
+    - stage: 2
+      name: tier_selection
+      type: sequential
+      operator: "→"
+      blocks:
+        - name: select_complexity_tier
+          function: select_tier
+          input_from: stage_1.output
+          config:
+            complexity_factors:
+              - multiple_integration_points
+              - sophisticated_ux_requirements
+              - real_time_sync
+              - flexible_booking_logic
+            tier_mapping:
+              L1: "Simple static calendar"
+              L2: "Basic blocking with localStorage"
+              L3: "Google Calendar read-only sync"
+              L4: "Full sync + booking logic"
+              L5: "Advanced: drag-select, text parsing, multi-slot"
+          output_type: Tier
+          expected_tier: L5
+
+    # ========================================================================
+    # STAGE 3: PARALLEL AGENT PLANNING WITH /paf
+    # ========================================================================
+    - stage: 3
+      name: parallel_agent_planning
+      type: parallel
+      operator: "||"
+      blocks:
+        - name: plan_ui_designer_agent
+          function: build_agent_plan
+          config:
+            agent_type: UI_DESIGNER
+            framework: /paf
+            responsibilities:
+              - design_calendar_grid_component
+              - create_day_cell_variants
+              - implement_drag_select_ui
+              - build_status_legend
+              - ensure_mobile_responsive
+            technologies:
+              - next_js_14
+              - react_typescript
+              - tailwind_css
+              - shadcn_ui
+            deliverables:
+              - CalendarGrid.tsx
+              - DayCell.tsx
+              - BlockingModal.tsx
+              - AvailabilityLegend.tsx
+          output_type: AgentPlan_UIDesigner
+
+        - name: plan_backend_engineer_agent
+          function: build_agent_plan
+          config:
+            agent_type: BACKEND_ENGINEER
+            framework: /paf
+            responsibilities:
+              - design_api_routes
+              - implement_availability_store
+              - handle_booking_logic
+              - manage_persistence
+            technologies:
+              - next_js_api_routes
+              - typescript
+              - localStorage
+            deliverables:
+              - api/calendar/sync/route.ts
+              - api/calendar/block/route.ts
+              - api/calendar/availability/route.ts
+              - lib/availability-store.ts
+          output_type: AgentPlan_BackendEngineer
+
+        - name: plan_integration_specialist_agent
+          function: build_agent_plan
+          config:
+            agent_type: INTEGRATION_SPECIALIST
+            framework: /paf
+            responsibilities:
+              - implement_google_calendar_mcp_adapter
+              - handle_event_sync
+              - manage_conflict_detection
+              - map_google_events_to_blocks
+            technologies:
+              - anthropic_sdk
+              - google_calendar_mcp
+              - model_context_protocol
+            deliverables:
+              - lib/calendar-mcp.ts
+              - lib/event-mapper.ts
+          output_type: AgentPlan_IntegrationSpecialist
+
+        - name: plan_qa_engineer_agent
+          function: build_agent_plan
+          config:
+            agent_type: QA_ENGINEER
+            framework: /paf
+            responsibilities:
+              - define_acceptance_criteria
+              - create_test_scenarios
+              - validate_mvp_features
+              - ensure_edge_case_handling
+            technologies:
+              - jest
+              - react_testing_library
+            deliverables:
+              - test_plan
+              - acceptance_criteria
+              - edge_case_scenarios
+          output_type: AgentPlan_QAEngineer
+
+      merge_strategy: concatenate
+      output_type: CombinedAgentPlans
+
+    # ========================================================================
+    # STAGE 4: ITERATIVE REFINEMENT WITH /rmp
+    # ========================================================================
+    - stage: 4
+      name: recursive_meta_prompting_refinement
+      type: kleisli
+      operator: ">=>"
+      quality_threshold: 0.85
+      blocks:
+        - name: apply_rmp_iteration_1
+          function: apply_rmp
+          config:
+            iteration: 1
+            focus:
+              - validate_technical_feasibility
+              - refine_component_architecture
+              - optimize_data_flow
+            quality_checks:
+              - api_design_soundness
+              - component_reusability
+              - performance_considerations
+          output_type: RefinedPlan_Iteration1
+
+        - name: apply_rmp_iteration_2
+          function: apply_rmp
+          config:
+            iteration: 2
+            focus:
+              - address_edge_cases
+              - improve_error_handling
+              - enhance_user_experience
+            quality_checks:
+              - error_boundary_coverage
+              - loading_states
+              - accessibility
+          output_type: RefinedPlan_Iteration2
+
+        - name: apply_rmp_iteration_3
+          function: apply_rmp
+          config:
+            iteration: 3
+            focus:
+              - finalize_mvp_scope
+              - ensure_rapid_prototyping_feasibility
+              - validate_9_13_hour_timeline
+            quality_checks:
+              - feature_completeness
+              - implementation_clarity
+              - timeline_realism
+          output_type: RefinedPlan_Iteration3
+
+      gate_behavior:
+        on_pass: proceed_to_integration
+        on_fail:
+          action: refine
+          max_iterations: 3
+
+    # ========================================================================
+    # STAGE 5: INTEGRATION & ASSEMBLY
+    # ========================================================================
+    - stage: 5
+      name: integration_assembly
+      type: kleisli
+      operator: ">=>"
+      quality_threshold: 0.85
+      blocks:
+        - name: integrate_components
+          function: integrate_components
+          config:
+            integration_points:
+              - ui_backend_api
+              - backend_mcp_adapter
+              - mcp_google_calendar
+              - state_ui_sync
+            validation:
+              - api_contracts_aligned
+              - type_safety_preserved
+              - error_propagation_handled
+          output_type: IntegratedSystem
+
+    # ========================================================================
+    # STAGE 6: QUALITY ASSESSMENT
+    # ========================================================================
+    - stage: 6
+      name: final_quality_assessment
+      type: sequential
+      operator: "→"
+      blocks:
+        - name: assess_system_quality
+          function: assess_quality
+          config:
+            target_threshold: 0.90
+            dimensions:
+              - feature_completeness: 0.30
+              - code_quality: 0.25
+              - user_experience: 0.20
+              - integration_soundness: 0.15
+              - timeline_feasibility: 0.10
+            validation:
+              required_mvp_features:
+                - view_calendar
+                - block_full_days
+                - block_half_days
+                - google_calendar_sync
+                - visual_blocking
+          output_type: FinalQualityAssessment
+
+# ============================================================================
+# TECHNOLOGY STACK
+# ============================================================================
+
+technology_stack:
+  frontend:
+    framework: "Next.js 14"
+    language: "TypeScript"
+    styling: "Tailwind CSS"
+    ui_components: "shadcn/ui"
+    state_management: "React Context + localStorage"
+
+  backend:
+    framework: "Next.js API Routes"
+    language: "TypeScript"
+
+  integrations:
+    calendar: "Google Calendar MCP"
+    protocol: "Model Context Protocol"
+    sdk: "@anthropic-ai/sdk"
+
+  utilities:
+    date_handling: "date-fns"
+
+  development:
+    testing: "Jest + React Testing Library"
+    type_checking: "TypeScript strict mode"
+
+# ============================================================================
+# MINIMAL FEATURE SET (OCCAM'S RAZOR)
+# ============================================================================
+
+features:
+  must_have_week_1:
+    - view_calendar: "Display current month with availability"
+    - block_full_days: "Click to mark days as unavailable"
+    - block_half_days: "AM/PM blocking"
+    - google_calendar_sync: "Read existing events via MCP"
+    - visual_blocking: "Airbnb-style drag-select"
+
+  nice_to_have_week_2:
+    - hourly_slots: "Divide days into hour blocks"
+    - text_input: "Parse 'unavailable Dec 20-25'"
+    - booking_categories: "Travel, Booked, Available, Tentative"
+
+  future_post_mvp:
+    - public_booking_link: "Clients can book slots"
+    - email_notifications: "Booking confirmations"
+    - recurring_blocks: "Repeat weekly/monthly patterns"
+
+# ============================================================================
+# TIMELINE
+# ============================================================================
+
+timeline:
+  phase_1_foundation: "2-3 hours"
+  phase_2_core_logic: "3-4 hours"
+  phase_3_google_calendar_mcp: "2-3 hours"
+  phase_4_polish: "2-3 hours"
+  total_mvp: "9-13 hours"
+
+# ============================================================================
+# QUALITY TARGETS
+# ============================================================================
+
+quality_targets:
+  feature_completeness: 0.90
+  code_quality: 0.85
+  user_experience: 0.90
+  integration_soundness: 0.85
+  timeline_adherence: 0.90
+
+# ============================================================================
+# SUCCESS CRITERIA
+# ============================================================================
+
+success_criteria:
+  - all_must_have_features_implemented
+  - google_calendar_sync_functional
+  - ui_matches_airbnb_calendly_aesthetic
+  - responsive_on_mobile
+  - working_prototype_in_13_hours_or_less

@@ -1,0 +1,502 @@
+/**
+ * AvailabilityContext - Global State Management for Calendar Availability
+ *
+ * Provides React Context + localStorage integration for managing blocked dates
+ * and Google Calendar events across the application.
+ *
+ * @module contexts/AvailabilityContext
+ * @see docs/REACT-PATTERNS-GUIDE.md Lines 20-174 for complete implementation patterns
+ * @see specs/TECHNICAL-PLAN.md Lines 100-116 for AvailabilityProvider specification
+ *
+ * Key Features:
+ * -  React Context for global state management
+ * -  localStorage persistence with SSR safety
+ * -  Optimistic updates (immediate UI feedback)
+ * -  Half-day blocking logic (AM/PM)
+ * -  Memoized context value (performance optimization)
+ * -  Type-safe actions with TypeScript
+ *
+ * Usage:
+ * ```typescript
+ * // In app/layout.tsx
+ * <AvailabilityProvider>
+ *   {children}
+ * </AvailabilityProvider>
+ *
+ * // In any component
+ * const { blockedDates, blockDate } = useAvailability();
+ * blockDate(new Date('2026-01-15'));
+ * ```
+ */
+
+'use client';
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  ReactNode,
+} from 'react';
+
+// Layer 0 imports
+import { loadBlockedDates, saveBlockedDates, clearStorage } from '@/lib/utils/storage';
+import { toISODateString } from '@/lib/utils/dates';
+import { BlockedDate, GoogleEvent } from '@/types';
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
+/**
+ * Context value exposed to consumers
+ *
+ * Provides both state (blocked dates, events) and actions (block/unblock).
+ * All actions are memoized with useCallback for performance.
+ */
+export interface AvailabilityContextValue {
+  // State
+  blockedDates: Map<string, BlockedDate>;
+  googleEvents: GoogleEvent[];
+  isLoading: boolean;
+  error: Error | null;
+  currentMonth: Date;
+
+  // Actions
+  blockDate: (date: Date) => void;
+  unblockDate: (date: Date) => void;
+  blockDateRange: (start: Date, end: Date) => void;
+  setHalfDayBlock: (date: Date, period: 'AM' | 'PM', blocked: boolean) => void;
+  refreshGoogleCalendar: () => Promise<void>;
+  clearAll: () => void;
+  setCurrentMonth: (date: Date) => void;
+}
+
+/**
+ * Provider props
+ */
+interface AvailabilityProviderProps {
+  children: ReactNode;
+}
+
+// ============================================================================
+// CONTEXT CREATION
+// ============================================================================
+
+/**
+ * Context with default value of null
+ *
+ * Using null forces type checking - consumers must use within provider.
+ */
+const AvailabilityContext = createContext<AvailabilityContextValue | null>(null);
+
+// ============================================================================
+// CUSTOM HOOK
+// ============================================================================
+
+/**
+ * Custom hook for consuming AvailabilityContext
+ *
+ * Throws error if used outside provider (fail-fast pattern).
+ * This is the recommended way to access context (best practice).
+ *
+ * @throws {Error} If used outside AvailabilityProvider
+ *
+ * @example
+ * ```typescript
+ * function CalendarGrid() {
+ *   const { blockedDates, blockDate } = useAvailability();
+ *   // Use context values...
+ * }
+ * ```
+ */
+export function useAvailability(): AvailabilityContextValue {
+  const context = useContext(AvailabilityContext);
+  if (!context) {
+    throw new Error('useAvailability must be used within AvailabilityProvider');
+  }
+  return context;
+}
+
+// ============================================================================
+// PROVIDER COMPONENT
+// ============================================================================
+
+/**
+ * AvailabilityProvider - Manages global calendar state
+ *
+ * Provides:
+ * - Blocked dates state with localStorage sync
+ * - Google Calendar events state
+ * - Loading/error states
+ * - Action methods for updating state
+ *
+ * State Management Pattern:
+ * 1. Initialize from localStorage (lazy, SSR-safe)
+ * 2. Update state via actions (optimistic)
+ * 3. Auto-sync to localStorage via useEffect
+ *
+ * Performance:
+ * - All actions wrapped in useCallback
+ * - Context value memoized with useMemo
+ * - Only changed data triggers re-renders
+ *
+ * @example
+ * ```typescript
+ * // app/layout.tsx
+ * export default function RootLayout({ children }) {
+ *   return (
+ *     <AvailabilityProvider>
+ *       {children}
+ *     </AvailabilityProvider>
+ *   );
+ * }
+ * ```
+ */
+export function AvailabilityProvider({ children }: AvailabilityProviderProps) {
+  // ==========================================================================
+  // STATE INITIALIZATION
+  // ==========================================================================
+
+  /**
+   * Blocked dates state (Map for O(1) lookups)
+   *
+   * Lazy initialization pattern:
+   * - Function runs only once on mount
+   * - Loads from localStorage if available
+   * - SSR-safe (checks typeof window)
+   * - Falls back to empty Map on errors
+   */
+  const [blockedDates, setBlockedDates] = useState<Map<string, BlockedDate>>(() => {
+    return loadBlockedDates();
+  });
+
+  /**
+   * Google Calendar events
+   *
+   * Populated via refreshGoogleCalendar() action.
+   * Empty array initially.
+   */
+  const [googleEvents, setGoogleEvents] = useState<GoogleEvent[]>([]);
+
+  /**
+   * Loading state during Google Calendar sync
+   */
+  const [isLoading, setIsLoading] = useState(false);
+
+  /**
+   * Error state for failed operations
+   */
+  const [error, setError] = useState<Error | null>(null);
+
+  /**
+   * Current month being displayed
+   *
+   * Used for calculating date ranges in Google Calendar sync.
+   * Defaults to current month.
+   */
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+
+  // ==========================================================================
+  // LOCALSTORAGE SYNC
+  // ==========================================================================
+
+  /**
+   * Auto-sync blockedDates to localStorage
+   *
+   * Runs whenever blockedDates changes:
+   * - Converts Map to Array for JSON serialization
+   * - Adds version and timestamp
+   * - Saves to localStorage
+   *
+   * Pattern: Centralized persistence via useEffect
+   * Benefit: Single source of truth, automatic batching
+   */
+  useEffect(() => {
+    saveBlockedDates(blockedDates);
+  }, [blockedDates]);
+
+  // ==========================================================================
+  // ACTIONS
+  // ==========================================================================
+
+  /**
+   * Block a single date (full day)
+   *
+   * Optimistic update pattern:
+   * - Updates UI immediately
+   * - localStorage sync happens automatically via useEffect
+   *
+   * @param date - Date to block
+   *
+   * @example
+   * ```typescript
+   * blockDate(new Date('2026-01-15'));
+   * // Immediately shows as blocked in UI
+   * // Saved to localStorage automatically
+   * ```
+   */
+  const blockDate = useCallback((date: Date) => {
+    const key = toISODateString(date);
+    setBlockedDates((prev) => {
+      const newMap = new Map(prev); // Immutable update
+      newMap.set(key, { date: key, status: 'full' });
+      return newMap;
+    });
+  }, []);
+
+  /**
+   * Unblock a date (removes from blocked dates)
+   *
+   * Clears any blocking (full, AM, or PM).
+   *
+   * @param date - Date to unblock
+   *
+   * @example
+   * ```typescript
+   * unblockDate(new Date('2026-01-15'));
+   * // Removes blocking, shows as available
+   * ```
+   */
+  const unblockDate = useCallback((date: Date) => {
+    const key = toISODateString(date);
+    setBlockedDates((prev) => {
+      const newMap = new Map(prev);
+      newMap.delete(key);
+      return newMap;
+    });
+  }, []);
+
+  /**
+   * Block a date range (inclusive)
+   *
+   * Blocks all dates from start to end (including both).
+   * Efficient for bulk operations (e.g., vacation week).
+   *
+   * @param start - Start date (inclusive)
+   * @param end - End date (inclusive)
+   *
+   * @example
+   * ```typescript
+   * // Block entire week
+   * blockDateRange(
+   *   new Date('2026-01-15'),
+   *   new Date('2026-01-21')
+   * );
+   * ```
+   */
+  const blockDateRange = useCallback((start: Date, end: Date) => {
+    setBlockedDates((prev) => {
+      const newMap = new Map(prev);
+      const currentDate = new Date(start);
+
+      while (currentDate <= end) {
+        const key = toISODateString(currentDate);
+        newMap.set(key, { date: key, status: 'full' });
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+
+      return newMap;
+    });
+  }, []);
+
+  /**
+   * Set or unset half-day block (AM or PM)
+   *
+   * Logic:
+   * - Blocking AM when PM blocked ’ Full day
+   * - Blocking PM when AM blocked ’ Full day
+   * - Unblocking AM from full day ’ Keep PM blocked
+   * - Unblocking PM from full day ’ Keep AM blocked
+   * - Unblocking single half-day ’ Remove entirely
+   *
+   * @param date - Date to modify
+   * @param period - Which half ('AM' or 'PM')
+   * @param blocked - true to block, false to unblock
+   *
+   * @example
+   * ```typescript
+   * // Block morning only
+   * setHalfDayBlock(new Date('2026-01-15'), 'AM', true);
+   *
+   * // Then block afternoon ’ Full day
+   * setHalfDayBlock(new Date('2026-01-15'), 'PM', true);
+   *
+   * // Unblock morning ’ Keep PM blocked
+   * setHalfDayBlock(new Date('2026-01-15'), 'AM', false);
+   * ```
+   */
+  const setHalfDayBlock = useCallback(
+    (date: Date, period: 'AM' | 'PM', blocked: boolean) => {
+      const key = toISODateString(date);
+
+      setBlockedDates((prev) => {
+        const newMap = new Map(prev);
+        const existing = newMap.get(key);
+
+        if (!blocked) {
+          // UNBLOCKING half day
+          if (existing?.status === 'full') {
+            // Change full block to opposite half
+            newMap.set(key, {
+              date: key,
+              status: period === 'AM' ? 'pm' : 'am',
+            });
+          } else if (existing?.status === period.toLowerCase() as 'am' | 'pm') {
+            // Remove the half-day block
+            newMap.delete(key);
+          }
+        } else {
+          // BLOCKING half day
+          if (existing?.status === 'full') {
+            // Already fully blocked
+            return newMap;
+          }
+
+          const oppositeHalf = period === 'AM' ? 'pm' : 'am';
+          if (existing?.status === oppositeHalf) {
+            // Both halves blocked = full day
+            newMap.set(key, { date: key, status: 'full' });
+          } else {
+            // Block this half
+            newMap.set(key, {
+              date: key,
+              status: period.toLowerCase() as 'am' | 'pm',
+            });
+          }
+        }
+
+        return newMap;
+      });
+    },
+    []
+  );
+
+  /**
+   * Refresh Google Calendar events
+   *
+   * Fetches events for current month ± 1 month buffer.
+   * Updates isLoading and error states during fetch.
+   *
+   * @returns Promise that resolves when sync completes
+   *
+   * @example
+   * ```typescript
+   * await refreshGoogleCalendar();
+   * // googleEvents now contains synced events
+   * ```
+   */
+  const refreshGoogleCalendar = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Calculate date range (current month ± 1 month)
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      const start = new Date(year, month - 1, 1);
+      const end = new Date(year, month + 2, 0);
+
+      const response = await fetch(
+        `/api/calendar/events?start=${start.toISOString()}&end=${end.toISOString()}`
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch calendar events');
+      }
+
+      const data = await response.json();
+
+      // Transform API response to GoogleEvent format
+      setGoogleEvents(
+        data.events.map((e: any) => ({
+          ...e,
+          start: new Date(e.start),
+          end: new Date(e.end),
+        }))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Unknown error'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentMonth]);
+
+  /**
+   * Clear all blocked dates
+   *
+   * Removes all blocks from state and localStorage.
+   * Useful for reset/testing functionality.
+   *
+   * @example
+   * ```typescript
+   * clearAll();
+   * // All dates now available
+   * ```
+   */
+  const clearAll = useCallback(() => {
+    setBlockedDates(new Map());
+    clearStorage();
+  }, []);
+
+  // ==========================================================================
+  // CONTEXT VALUE
+  // ==========================================================================
+
+  /**
+   * Memoized context value
+   *
+   * Performance optimization:
+   * - Only re-creates when dependencies change
+   * - Prevents unnecessary re-renders of consumers
+   * - All actions are already memoized with useCallback
+   *
+   * Dependencies:
+   * - State: blockedDates, googleEvents, isLoading, error, currentMonth
+   * - Actions: All wrapped in useCallback (stable references)
+   */
+  const contextValue = useMemo<AvailabilityContextValue>(
+    () => ({
+      // State
+      blockedDates,
+      googleEvents,
+      isLoading,
+      error,
+      currentMonth,
+
+      // Actions
+      blockDate,
+      unblockDate,
+      blockDateRange,
+      setHalfDayBlock,
+      refreshGoogleCalendar,
+      clearAll,
+      setCurrentMonth,
+    }),
+    [
+      blockedDates,
+      googleEvents,
+      isLoading,
+      error,
+      currentMonth,
+      blockDate,
+      unblockDate,
+      blockDateRange,
+      setHalfDayBlock,
+      refreshGoogleCalendar,
+      clearAll,
+    ]
+  );
+
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
+
+  return (
+    <AvailabilityContext.Provider value={contextValue}>
+      {children}
+    </AvailabilityContext.Provider>
+  );
+}
