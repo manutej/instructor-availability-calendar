@@ -11,14 +11,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import type { AvailabilityQuery, ParseQueryResponse, ParseQueryError } from '@/types/email-generator';
 
-// Initialize Anthropic client - fail securely if API key missing
-if (!process.env.ANTHROPIC_API_KEY) {
-  throw new Error('ANTHROPIC_API_KEY environment variable is required');
-}
+// Lazy-initialize Anthropic client only when needed
+// This allows the app to build without requiring ANTHROPIC_API_KEY
+let anthropic: Anthropic | null = null;
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
+function getAnthropicClient(): Anthropic | null {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return null;
+  }
+
+  if (!anthropic) {
+    anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
+  }
+
+  return anthropic;
+}
 
 /**
  * System prompt for Claude to parse availability queries
@@ -164,9 +173,15 @@ function fallbackParser(userQuery: string, currentDate: Date): AvailabilityQuery
  */
 async function parseWithClaude(userQuery: string, currentDate: Date): Promise<AvailabilityQuery | null> {
   try {
+    const client = getAnthropicClient();
+    if (!client) {
+      console.warn('ANTHROPIC_API_KEY not configured, using fallback parser');
+      return null;
+    }
+
     const systemPrompt = SYSTEM_PROMPT.replace('{{currentDate}}', currentDate.toISOString().split('T')[0]);
 
-    const response = await anthropic.messages.create({
+    const response = await client.messages.create({
       model: 'claude-3-5-sonnet-20241022',
       max_tokens: 1024,
       system: systemPrompt,
