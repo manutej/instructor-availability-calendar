@@ -60,13 +60,29 @@ export default function EmailGenerator({
     setError(null);
 
     try {
-      // Load blocked dates from localStorage
-      const availabilityData = localStorage.getItem('availability');
-      const blockedDates: Record<string, any> = availabilityData
-        ? JSON.parse(availabilityData).blockedDates || {}
-        : {};
+      // CRITICAL FIX: Use correct storage key!
+      // Calendar saves to 'cal_availability_v1', not 'availability'
+      const STORAGE_KEY = 'cal_availability_v1';
+      const availabilityData = localStorage.getItem(STORAGE_KEY);
 
-      console.log('🚫 Blocked dates from localStorage:', blockedDates);
+      console.log('📦 Raw localStorage data:', availabilityData);
+
+      // Parse the schema (version + blockedDates array + lastSync)
+      const blockedDatesMap = new Map<string, any>();
+
+      if (availabilityData) {
+        const parsed = JSON.parse(availabilityData);
+        console.log('📋 Parsed schema:', parsed);
+
+        // Convert blockedDates array to Map for O(1) lookups
+        if (parsed.blockedDates && Array.isArray(parsed.blockedDates)) {
+          parsed.blockedDates.forEach((bd: any) => {
+            blockedDatesMap.set(bd.date, bd);
+          });
+        }
+      }
+
+      console.log('🚫 Blocked dates Map (' + blockedDatesMap.size + ' total):', Object.fromEntries(blockedDatesMap));
 
       // FIX #1: Use parseISO to avoid timezone issues
       // parseISO('2025-12-19') creates a date in LOCAL timezone, not UTC
@@ -100,7 +116,7 @@ export default function EmailGenerator({
         }
 
         const dateKey = format(date, 'yyyy-MM-dd');
-        const blocked = blockedDates[dateKey];
+        const blocked = blockedDatesMap.get(dateKey); // Use Map.get() instead of object access
         const isAvailable = !blocked || blocked.status !== 'full';
 
         console.log(`  ${dateKey} (${format(date, 'EEEE')}): weekday=${isWeekday}, blocked=${!!blocked}, status=${blocked?.status}, available=${isAvailable}`);

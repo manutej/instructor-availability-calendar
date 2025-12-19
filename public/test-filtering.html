@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Filtering Logic</title>
+  <style>
+    body { font-family: monospace; padding: 2rem; background: #f5f5f5; }
+    .test { background: white; padding: 1rem; margin: 1rem 0; border-radius: 8px; }
+    .blocked { color: red; font-weight: bold; }
+    .available { color: green; }
+    pre { background: #f8f8f8; padding: 1rem; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>🔍 Test Filtering Logic</h1>
+
+  <div class="test">
+    <h2>Step 1: Check localStorage</h2>
+    <button onclick="checkStorage()">Check Storage</button>
+    <pre id="storage"></pre>
+  </div>
+
+  <div class="test">
+    <h2>Step 2: Test Date Range Dec 22-28</h2>
+    <button onclick="testWeek()">Test Week</button>
+    <pre id="weekTest"></pre>
+  </div>
+
+  <script>
+    function formatDate(date) {
+      const d = new Date(date);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function checkStorage() {
+      const data = localStorage.getItem('availability');
+      const output = document.getElementById('storage');
+
+      if (!data) {
+        output.textContent = 'NO DATA FOUND';
+        return;
+      }
+
+      const parsed = JSON.parse(data);
+      output.textContent = JSON.stringify(parsed, null, 2);
+    }
+
+    function testWeek() {
+      const output = document.getElementById('weekTest');
+      const data = localStorage.getItem('availability');
+
+      if (!data) {
+        output.textContent = 'NO DATA - block some dates first';
+        return;
+      }
+
+      const parsed = JSON.parse(data);
+      const blockedDates = parsed.blockedDates || {};
+
+      let result = 'Testing Dec 22-28, 2025:\n\n';
+      result += `Blocked dates in localStorage:\n${JSON.stringify(blockedDates, null, 2)}\n\n`;
+
+      // Test each day
+      const testDates = [
+        '2025-12-22', // Monday
+        '2025-12-23', // Tuesday
+        '2025-12-24', // Wednesday
+        '2025-12-25', // Thursday
+        '2025-12-26', // Friday
+        '2025-12-27', // Saturday (should skip - weekend)
+        '2025-12-28', // Sunday (should skip - weekend)
+      ];
+
+      result += 'Testing each date:\n';
+      testDates.forEach(dateKey => {
+        const date = new Date(dateKey);
+        const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+        const blocked = blockedDates[dateKey];
+        const isBlocked = blocked && blocked.status === 'full';
+        const isAvailable = isWeekday && !isBlocked;
+
+        const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dayOfWeek];
+
+        result += `${dateKey} (${dayName}): `;
+        result += `weekday=${isWeekday}, `;
+        result += `blocked=${!!blocked}, `;
+        result += `status=${blocked?.status || 'none'}, `;
+        result += `AVAILABLE=${isAvailable ? 'YES ✅' : 'NO ❌'}\n`;
+      });
+
+      output.textContent = result;
+    }
+
+    // Auto-run on load
+    checkStorage();
+  </script>
+</body>
+</html>
