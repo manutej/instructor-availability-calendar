@@ -16,7 +16,7 @@
 'use client';
 
 import { useState } from 'react';
-import { format, addDays, startOfDay, isBefore } from 'date-fns';
+import { format, addDays, startOfDay, isBefore, getDay, startOfWeek, endOfWeek, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -49,6 +49,11 @@ export default function EmailGenerator({
 
   /**
    * Generate availability text for specified date range
+   *
+   * FIXES:
+   * 1. Date parsing with parseISO to avoid timezone off-by-one errors
+   * 2. Filter to weekdays only (Monday-Friday)
+   * 3. Group by week with spelled-out weekday names
    */
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -61,79 +66,110 @@ export default function EmailGenerator({
         ? JSON.parse(availabilityData).blockedDates || {}
         : {};
 
-      // Generate all dates in range
-      const start = startOfDay(new Date(startDate));
-      const end = startOfDay(new Date(endDate));
-      const allDates: Date[] = [];
+      console.log('🚫 Blocked dates from localStorage:', blockedDates);
 
+      // FIX #1: Use parseISO to avoid timezone issues
+      // parseISO('2025-12-19') creates a date in LOCAL timezone, not UTC
+      const start = parseISO(startDate + 'T00:00:00');
+      const end = parseISO(endDate + 'T00:00:00');
+
+      console.log('📅 Date range:', {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        startFormatted: format(start, 'yyyy-MM-dd'),
+        endFormatted: format(end, 'yyyy-MM-dd')
+      });
+
+      // Generate all dates in range
+      const allDates: Date[] = [];
       let currentDate = start;
       while (isBefore(currentDate, end) || currentDate.getTime() === end.getTime()) {
-        allDates.push(currentDate);
+        allDates.push(new Date(currentDate));
         currentDate = addDays(currentDate, 1);
       }
 
-      // Filter to available dates (not blocked)
+      console.log('📊 All dates in range:', allDates.length, allDates.map(d => format(d, 'yyyy-MM-dd')));
+
+      // FIX #2: Filter to weekdays only (Monday-Friday) AND available (not blocked)
       const available = allDates.filter(date => {
+        const dayOfWeek = getDay(date); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5; // Monday-Friday only
+
+        if (!isWeekday) {
+          return false; // Skip weekends
+        }
+
         const dateKey = format(date, 'yyyy-MM-dd');
         const blocked = blockedDates[dateKey];
-        return !blocked || blocked.status !== 'full';
+        const isAvailable = !blocked || blocked.status !== 'full';
+
+        console.log(`  ${dateKey} (${format(date, 'EEEE')}): weekday=${isWeekday}, blocked=${!!blocked}, status=${blocked?.status}, available=${isAvailable}`);
+        return isAvailable;
       });
 
+      console.log('✅ Available weekdays:', available.length, available.map(d => format(d, 'yyyy-MM-dd')));
+
       if (available.length === 0) {
-        setError('No available dates in this range. All dates are blocked.');
+        setError('No available weekdays in this range. All weekdays are blocked.');
         setGeneratedText('');
         setAvailableDates([]);
         return;
       }
 
-      // Format dates
+      // Format all dates for display
       const formattedDates = available.map(date =>
         format(date, 'EEEE, MMMM d, yyyy')
       );
 
+      // FIX #3: Group by week with spelled-out weekday names
+      // Format: "Week of Jan 5-11: Monday, Wednesday, Friday"
+
+      interface WeekGroup {
+        weekStart: Date;
+        weekEnd: Date;
+        dates: Date[];
+      }
+
+      const weekGroups: WeekGroup[] = [];
+
+      available.forEach(date => {
+        const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday = start of week
+        const weekEnd = endOfWeek(date, { weekStartsOn: 1 }); // Sunday = end of week
+
+        // Find existing week group or create new one
+        let group = weekGroups.find(g =>
+          g.weekStart.getTime() === weekStart.getTime()
+        );
+
+        if (!group) {
+          group = { weekStart, weekEnd, dates: [] };
+          weekGroups.push(group);
+        }
+
+        group.dates.push(date);
+      });
+
+      // Sort week groups by date
+      weekGroups.sort((a, b) => a.weekStart.getTime() - b.weekStart.getTime());
+
+      // Build output with week-based grouping
+      const weekLines = weekGroups.map(group => {
+        // Week range header
+        const weekStartStr = format(group.weekStart, 'MMM d');
+        const weekEndStr = format(group.weekEnd, 'MMM d');
+        const weekHeader = `Week of ${weekStartStr}-${weekEndStr}`;
+
+        // Spelled-out weekday names
+        const weekdayNames = group.dates.map(date => format(date, 'EEEE')).join(', ');
+
+        return `${weekHeader}: ${weekdayNames}`;
+      });
+
       // Build date range description
       const rangeDescription = `${format(start, 'MMMM d')} - ${format(end, 'MMMM d, yyyy')}`;
 
-      // Group consecutive dates into ranges
-      const dateRanges: string[] = [];
-      let rangeStart = available[0];
-      let rangeEnd = available[0];
-
-      for (let i = 1; i < available.length; i++) {
-        const prevDate = available[i - 1];
-        const currDate = available[i];
-
-        // Check if consecutive (1 day apart)
-        const daysDiff = Math.floor((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
-
-        if (daysDiff === 1) {
-          // Extend current range
-          rangeEnd = currDate;
-        } else {
-          // Save current range and start new one
-          if (rangeStart.getTime() === rangeEnd.getTime()) {
-            dateRanges.push(format(rangeStart, 'EEEE, MMMM d, yyyy'));
-          } else {
-            dateRanges.push(
-              `${format(rangeStart, 'EEEE, MMMM d')} - ${format(rangeEnd, 'EEEE, MMMM d, yyyy')}`
-            );
-          }
-          rangeStart = currDate;
-          rangeEnd = currDate;
-        }
-      }
-
-      // Add final range
-      if (rangeStart.getTime() === rangeEnd.getTime()) {
-        dateRanges.push(format(rangeStart, 'EEEE, MMMM d, yyyy'));
-      } else {
-        dateRanges.push(
-          `${format(rangeStart, 'EEEE, MMMM d')} - ${format(rangeEnd, 'EEEE, MMMM d, yyyy')}`
-        );
-      }
-
-      // Build output text
-      const outputText = `Here are my available dates (${rangeDescription}):\n\n${dateRanges.join('\n\n')}`;
+      // Build final output text
+      const outputText = `Here are my available dates (${rangeDescription}):\n\n${weekLines.join('\n\n')}`;
 
       setGeneratedText(outputText);
       setAvailableDates(formattedDates);
@@ -256,7 +292,7 @@ export default function EmailGenerator({
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
               <p className="text-xs text-blue-800">
                 💡 <strong>Tip:</strong> Click "Copy Text" and paste directly into your email.
-                The text groups consecutive available dates into ranges for easier reading.
+                The text shows available <strong>weekdays only</strong> (Mon-Fri), grouped by week with spelled-out day names.
               </p>
             </div>
           </div>
