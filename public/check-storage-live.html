@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Storage Monitor</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      padding: 2rem;
+      background: #f5f5f5;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 { color: #333; margin-bottom: 1.5rem; }
+    .card {
+      background: white;
+      padding: 1.5rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 1.5rem;
+    }
+    pre {
+      background: #f8f8f8;
+      padding: 1rem;
+      border-radius: 4px;
+      overflow-x: auto;
+      border-left: 4px solid #4f46e5;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    button {
+      background: #4f46e5;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1rem;
+      margin-right: 0.5rem;
+    }
+    button:hover { background: #4338ca; }
+    .error { color: #dc2626; background: #fee; padding: 1rem; border-radius: 4px; }
+    .success { color: #16a34a; background: #f0fdf4; padding: 1rem; border-radius: 4px; }
+    .warning { color: #ea580c; background: #fff7ed; padding: 1rem; border-radius: 4px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #e5e5e5;
+    }
+    th {
+      background: #f9fafb;
+      font-weight: 600;
+      color: #374151;
+    }
+    .auto-refresh {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔴 Live Storage Monitor</h1>
+
+  <div class="card">
+    <div class="auto-refresh">
+      <button onclick="refresh()">🔄 Refresh Now</button>
+      <label>
+        <input type="checkbox" id="autoRefresh" checked>
+        Auto-refresh every 2 seconds
+      </label>
+      <span id="lastUpdate"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📦 All localStorage Keys</h2>
+    <div id="allKeys"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔑 cal_availability_v1 (Current)</h2>
+    <div id="currentData"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔑 availability (Legacy - should be empty)</h2>
+    <div id="legacyData"></div>
+  </div>
+
+  <div class="card">
+    <h2>📊 Blocked Dates List</h2>
+    <div id="blockedList"></div>
+  </div>
+
+  <script>
+    function formatDate(dateStr) {
+      try {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      } catch {
+        return dateStr;
+      }
+    }
+
+    function refresh() {
+      const now = new Date().toLocaleTimeString();
+      document.getElementById('lastUpdate').textContent = `Last update: ${now}`;
+
+      // Show all localStorage keys
+      const allKeys = Object.keys(localStorage);
+      const allKeysDiv = document.getElementById('allKeys');
+      if (allKeys.length === 0) {
+        allKeysDiv.innerHTML = '<div class="warning">⚠️ No keys found in localStorage</div>';
+      } else {
+        allKeysDiv.innerHTML = `
+          <p><strong>Total keys:</strong> ${allKeys.length}</p>
+          <ul>${allKeys.map(key => `<li><code>${key}</code></li>`).join('')}</ul>
+        `;
+      }
+
+      // Check cal_availability_v1 (current)
+      const currentKey = 'cal_availability_v1';
+      const currentData = localStorage.getItem(currentKey);
+      const currentDiv = document.getElementById('currentData');
+
+      if (!currentData) {
+        currentDiv.innerHTML = '<div class="error">❌ No data found - calendar has not saved any blocked dates yet!</div>';
+      } else {
+        try {
+          const parsed = JSON.parse(currentData);
+          currentDiv.innerHTML = `
+            <div class="success">✅ Data found (${currentData.length} characters)</div>
+            <pre>${JSON.stringify(parsed, null, 2)}</pre>
+          `;
+        } catch (err) {
+          currentDiv.innerHTML = `<div class="error">❌ Invalid JSON: ${err.message}</div><pre>${currentData}</pre>`;
+        }
+      }
+
+      // Check availability (legacy)
+      const legacyKey = 'availability';
+      const legacyData = localStorage.getItem(legacyKey);
+      const legacyDiv = document.getElementById('legacyData');
+
+      if (!legacyData) {
+        legacyDiv.innerHTML = '<div class="success">✅ Empty (as expected - this key is not used)</div>';
+      } else {
+        legacyDiv.innerHTML = `<div class="warning">⚠️ Found legacy data (shouldn't be here)</div><pre>${legacyData}</pre>`;
+      }
+
+      // Show blocked dates as table
+      const blockedDiv = document.getElementById('blockedList');
+      if (!currentData) {
+        blockedDiv.innerHTML = '<div class="warning">No blocked dates to display</div>';
+      } else {
+        try {
+          const parsed = JSON.parse(currentData);
+          const blockedDates = parsed.blockedDates || [];
+
+          if (blockedDates.length === 0) {
+            blockedDiv.innerHTML = '<div class="warning">No dates blocked yet - block some dates on the calendar!</div>';
+          } else {
+            const sortedDates = blockedDates.sort((a, b) => a.date.localeCompare(b.date));
+            let tableHtml = `
+              <p><strong>Total blocked dates:</strong> ${blockedDates.length}</p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date Key</th>
+                    <th>Readable Date</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+            `;
+
+            sortedDates.forEach(bd => {
+              const readable = formatDate(bd.date);
+              const details = JSON.stringify(bd, null, 2);
+              tableHtml += `
+                <tr>
+                  <td><code>${bd.date}</code></td>
+                  <td>${readable}</td>
+                  <td><strong>${bd.status || 'unknown'}</strong></td>
+                  <td><pre style="margin:0;padding:0.5rem;font-size:0.75rem;border:none;">${details}</pre></td>
+                </tr>
+              `;
+            });
+
+            tableHtml += '</tbody></table>';
+            blockedDiv.innerHTML = tableHtml;
+          }
+        } catch (err) {
+          blockedDiv.innerHTML = `<div class="error">Error parsing: ${err.message}</div>`;
+        }
+      }
+    }
+
+    // Auto-refresh logic
+    let refreshInterval;
+
+    function startAutoRefresh() {
+      if (refreshInterval) clearInterval(refreshInterval);
+      if (document.getElementById('autoRefresh').checked) {
+        refreshInterval = setInterval(refresh, 2000); // Every 2 seconds
+      }
+    }
+
+    document.getElementById('autoRefresh').addEventListener('change', startAutoRefresh);
+
+    // Initial load
+    refresh();
+    startAutoRefresh();
+
+    // Listen for storage changes from other tabs
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'cal_availability_v1' || e.key === null) {
+        refresh();
+      }
+    });
+  </script>
+</body>
+</html>

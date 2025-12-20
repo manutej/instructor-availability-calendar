@@ -132,60 +132,69 @@ export default function EmailGenerator({
         return;
       }
 
-      // Format all dates for display
+      // NEW FORMAT: Consecutive date ranges with calendar dates only
+      // Example: "Dec 22-24", "Jan 5-9", "Jan 12-14"
+
+      const dateRanges: string[] = [];
+      let rangeStart = available[0];
+      let rangeEnd = available[0];
+
+      for (let i = 1; i < available.length; i++) {
+        const prevDate = available[i - 1];
+        const currDate = available[i];
+
+        // Check if consecutive (next business day)
+        // Note: We already filtered to weekdays only, so just check if 1-3 days apart
+        // (1 day = next day, 3 days = Monday after Friday)
+        const daysDiff = Math.floor((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (daysDiff <= 3) {
+          // Extend current range (consecutive business days)
+          rangeEnd = currDate;
+        } else {
+          // Save current range and start new one
+          if (rangeStart.getTime() === rangeEnd.getTime()) {
+            // Single date
+            dateRanges.push(format(rangeStart, 'MMM d'));
+          } else {
+            // Date range
+            const startMonth = format(rangeStart, 'MMM');
+            const endMonth = format(rangeEnd, 'MMM');
+
+            if (startMonth === endMonth) {
+              // Same month: "Dec 22-24"
+              dateRanges.push(`${startMonth} ${format(rangeStart, 'd')}-${format(rangeEnd, 'd')}`);
+            } else {
+              // Different months: "Dec 30-Jan 3"
+              dateRanges.push(`${format(rangeStart, 'MMM d')}-${format(rangeEnd, 'MMM d')}`);
+            }
+          }
+          rangeStart = currDate;
+          rangeEnd = currDate;
+        }
+      }
+
+      // Add final range
+      if (rangeStart.getTime() === rangeEnd.getTime()) {
+        dateRanges.push(format(rangeStart, 'MMM d'));
+      } else {
+        const startMonth = format(rangeStart, 'MMM');
+        const endMonth = format(rangeEnd, 'MMM');
+
+        if (startMonth === endMonth) {
+          dateRanges.push(`${startMonth} ${format(rangeStart, 'd')}-${format(rangeEnd, 'd')}`);
+        } else {
+          dateRanges.push(`${format(rangeStart, 'MMM d')}-${format(rangeEnd, 'MMM d')}`);
+        }
+      }
+
+      // Build final output text
+      const outputText = `Here is my availability:\n\n${dateRanges.join('\n\n')}`;
+
+      // Also keep formatted dates for display count
       const formattedDates = available.map(date =>
         format(date, 'EEEE, MMMM d, yyyy')
       );
-
-      // FIX #3: Group by week with spelled-out weekday names
-      // Format: "Week of Jan 5-11: Monday, Wednesday, Friday"
-
-      interface WeekGroup {
-        weekStart: Date;
-        weekEnd: Date;
-        dates: Date[];
-      }
-
-      const weekGroups: WeekGroup[] = [];
-
-      available.forEach(date => {
-        const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday = start of week
-        const weekEnd = endOfWeek(date, { weekStartsOn: 1 }); // Sunday = end of week
-
-        // Find existing week group or create new one
-        let group = weekGroups.find(g =>
-          g.weekStart.getTime() === weekStart.getTime()
-        );
-
-        if (!group) {
-          group = { weekStart, weekEnd, dates: [] };
-          weekGroups.push(group);
-        }
-
-        group.dates.push(date);
-      });
-
-      // Sort week groups by date
-      weekGroups.sort((a, b) => a.weekStart.getTime() - b.weekStart.getTime());
-
-      // Build output with week-based grouping
-      const weekLines = weekGroups.map(group => {
-        // Week range header
-        const weekStartStr = format(group.weekStart, 'MMM d');
-        const weekEndStr = format(group.weekEnd, 'MMM d');
-        const weekHeader = `Week of ${weekStartStr}-${weekEndStr}`;
-
-        // Spelled-out weekday names
-        const weekdayNames = group.dates.map(date => format(date, 'EEEE')).join(', ');
-
-        return `${weekHeader}: ${weekdayNames}`;
-      });
-
-      // Build date range description
-      const rangeDescription = `${format(start, 'MMMM d')} - ${format(end, 'MMMM d, yyyy')}`;
-
-      // Build final output text
-      const outputText = `Here are my available dates (${rangeDescription}):\n\n${weekLines.join('\n\n')}`;
 
       setGeneratedText(outputText);
       setAvailableDates(formattedDates);
