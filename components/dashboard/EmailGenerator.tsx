@@ -317,7 +317,7 @@ export default function EmailGenerator({
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
               <p className="text-xs text-blue-800">
                 💡 <strong>Tip:</strong> Click "Copy Text" and paste directly into your email.
-                The text shows available <strong>weekdays only</strong> (Mon-Fri), grouped by week with spelled-out day names.
+                Shows <strong>weekdays only</strong> (Mon-Fri) as consecutive calendar date ranges (e.g., "Dec 22-24", "Jan 5-9").
               </p>
             </div>
           </div>
