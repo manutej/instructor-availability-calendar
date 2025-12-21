@@ -105,7 +105,11 @@
   <script>
     function formatDate(dateStr) {
       try {
-        const d = new Date(dateStr);
+        // FIX: Parse date in local timezone to avoid off-by-one errors
+        // "2026-01-27" should display as "Monday, January 27, 2026"
+        const [year, month, day] = dateStr.split('-').map(Number);
+        const d = new Date(year, month - 1, day); // Month is 0-indexed
+
         return d.toLocaleDateString('en-US', {
           weekday: 'long',
           year: 'numeric',

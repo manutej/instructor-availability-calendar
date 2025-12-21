@@ -134,10 +134,13 @@ export default function EmailGenerator({
 
       // NEW FORMAT: Consecutive date ranges with calendar dates only
       // Example: "Dec 22-24", "Jan 5-9", "Jan 12-14"
+      // MAX RANGE: 5 business days per range to keep it readable
 
       const dateRanges: string[] = [];
       let rangeStart = available[0];
       let rangeEnd = available[0];
+      let daysInCurrentRange = 1;
+      const MAX_DAYS_PER_RANGE = 5; // Maximum 5 weekdays per range (1 work week)
 
       for (let i = 1; i < available.length; i++) {
         const prevDate = available[i - 1];
@@ -148,9 +151,10 @@ export default function EmailGenerator({
         // (1 day = next day, 3 days = Monday after Friday)
         const daysDiff = Math.floor((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (daysDiff <= 3) {
-          // Extend current range (consecutive business days)
+        // Extend range if: (1) consecutive AND (2) haven't hit max length
+        if (daysDiff <= 3 && daysInCurrentRange < MAX_DAYS_PER_RANGE) {
           rangeEnd = currDate;
+          daysInCurrentRange++;
         } else {
           // Save current range and start new one
           if (rangeStart.getTime() === rangeEnd.getTime()) {
@@ -171,6 +175,7 @@ export default function EmailGenerator({
           }
           rangeStart = currDate;
           rangeEnd = currDate;
+          daysInCurrentRange = 1;
         }
       }
 
