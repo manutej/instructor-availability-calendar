@@ -43,6 +43,7 @@ import {
 
 // Layer 0 imports
 import { loadBlockedDates, saveBlockedDates, clearStorage } from '@/lib/utils/storage';
+import { persistence } from '@/lib/data/persistence';
 import { toISODateString } from '@/lib/utils/dates';
 import { BlockedDate, GoogleEvent } from '@/types';
 
@@ -246,11 +247,36 @@ export function AvailabilityProvider({
    * Skips sync when readOnly=true (public calendar view)
    */
   useEffect(() => {
-    if (readOnly) return;  // Skip localStorage sync for public view
+    if (readOnly) return;  // Skip sync for public view
 
     // Trigger save animation
     setIsSaving(true);
-    saveBlockedDates(blockedDates);
+
+    // Save to localStorage (immediate) AND Supabase (async)
+    saveBlockedDates(blockedDates);  // localStorage for backward compat
+
+    // Also sync to Supabase if configured
+    const syncToCloud = async () => {
+      try {
+        // Convert Map to v1 format for persistence layer
+        const availabilityData = {
+          version: 2 as const,
+          instructorId: 'default',
+          lastModified: new Date().toISOString(),
+          blockedDates: Object.fromEntries(
+            Array.from(blockedDates.entries()).map(([date, bd]) => [
+              date,
+              { date: bd.date, status: bd.status, eventName: bd.eventName }
+            ])
+          ),
+        };
+        await persistence.saveAvailability(availabilityData);
+      } catch (error) {
+        console.error('[Context] Failed to sync to cloud:', error);
+      }
+    };
+
+    syncToCloud();
     setLastSaved(new Date());
 
     // Clear save animation after brief delay

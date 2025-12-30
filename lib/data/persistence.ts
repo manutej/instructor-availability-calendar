@@ -264,15 +264,16 @@ class SupabaseAdapter implements PersistenceAdapter {
 
     const supabase = await this.getClient();
     if (!supabase) {
-      console.warn('Supabase not configured, saved to localStorage only');
+      console.warn('[Supabase] Not configured - saved to localStorage only');
       return;
     }
 
     try {
+      console.log('[Supabase] Saving availability to cloud...');
       const v2Data = migrationService.migrate(data);
       const serializable = this.prepareForSerialization(v2Data);
 
-      const { error } = await supabase
+      const { error, data: result } = await supabase
         .from('instructor_availability')
         .upsert({
           instructor_id: this.instructorId,
@@ -281,15 +282,16 @@ class SupabaseAdapter implements PersistenceAdapter {
           updated_at: new Date().toISOString(),
         }, {
           onConflict: 'instructor_id',
-        });
+        })
+        .select();
 
       if (error) {
-        console.error('Supabase save error:', error);
-        // Data is still in localStorage, so operation succeeds partially
+        console.error('[Supabase] Save error:', error);
+      } else {
+        console.log('[Supabase] ✓ Saved successfully:', result);
       }
     } catch (error) {
-      console.error('Supabase connection error:', error);
-      // Fail silently - localStorage has the data
+      console.error('[Supabase] Connection error:', error);
     }
   }
 
@@ -300,11 +302,12 @@ class SupabaseAdapter implements PersistenceAdapter {
     const supabase = await this.getClient();
 
     if (!supabase) {
-      // Fallback to localStorage
+      console.log('[Supabase] Not configured - loading from localStorage');
       return this.localAdapter.loadAvailability();
     }
 
     try {
+      console.log('[Supabase] Loading availability from cloud...');
       const { data, error } = await supabase
         .from('instructor_availability')
         .select('availability_data, version')
@@ -312,15 +315,15 @@ class SupabaseAdapter implements PersistenceAdapter {
         .single();
 
       if (error || !data) {
-        // No data in Supabase, try localStorage
+        console.log('[Supabase] No cloud data found, falling back to localStorage');
         return this.localAdapter.loadAvailability();
       }
 
-      // Deserialize and migrate
+      console.log('[Supabase] ✓ Loaded from cloud:', { version: data.version });
       const deserialized = this.deserializeFromStorage(data.availability_data);
       return migrationService.migrate(deserialized);
     } catch (error) {
-      console.error('Supabase load error:', error);
+      console.error('[Supabase] Load error:', error);
       return this.localAdapter.loadAvailability();
     }
   }
