@@ -221,12 +221,74 @@ export function AvailabilityProvider({
   const [isSaving, setIsSaving] = useState(false);
 
   /**
+   * Track if initial cloud load is in progress
+   *
+   * Prevents the save effect from running during initial cloud load.
+   */
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  /**
    * Last save timestamp
    *
    * Tracks when blockedDates was last persisted to localStorage.
    * Used for "Saved X seconds ago" feedback.
    */
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+
+  // ==========================================================================
+  // LOAD FROM SUPABASE ON MOUNT
+  // ==========================================================================
+
+  /**
+   * Load initial data from Supabase when available
+   *
+   * This ensures batch-imported data from Supabase appears in the UI.
+   * Falls back to localStorage if Supabase is not configured or fails.
+   *
+   * Only runs once on mount (not on every render).
+   */
+  useEffect(() => {
+    if (readOnly || initialBlockedDates) {
+      setIsInitialLoad(false); // No cloud load needed
+      return;
+    }
+
+    const loadFromCloud = async () => {
+      try {
+        const cloudData = await persistence.loadAvailability();
+        if (cloudData && cloudData.blockedDates) {
+          console.log('[Context] Loaded from cloud, updating state...');
+          // Convert v2 format to Map<string, BlockedDate>
+          const newMap = new Map<string, BlockedDate>();
+          for (const [date, status] of Object.entries(cloudData.blockedDates)) {
+            if (!Object.prototype.hasOwnProperty.call(cloudData.blockedDates, date)) continue;
+
+            // Handle both v1 simple format and v2 slots format
+            if (status && typeof status === 'object') {
+              const statusObj = status as any;
+              newMap.set(date, {
+                date,
+                status: statusObj.status || (statusObj.fullDayBlock ? 'full' : 'am'),
+                eventName: statusObj.eventName,
+              });
+            }
+          }
+
+          if (newMap.size > 0) {
+            console.log(`[Context] ✓ Loaded ${newMap.size} blocked dates from cloud`);
+            setBlockedDates(newMap);
+          }
+        }
+      } catch (error) {
+        console.error('[Context] Failed to load from cloud:', error);
+        // Keep localStorage data (already loaded in useState initializer)
+      } finally {
+        setIsInitialLoad(false);
+      }
+    };
+
+    loadFromCloud();
+  }, [readOnly, initialBlockedDates]); // Only run once on mount
 
   // ==========================================================================
   // LOCALSTORAGE SYNC
@@ -248,6 +310,7 @@ export function AvailabilityProvider({
    */
   useEffect(() => {
     if (readOnly) return;  // Skip sync for public view
+    if (isInitialLoad) return;  // Skip save during initial cloud load
 
     // Trigger save animation
     setIsSaving(true);
@@ -285,7 +348,7 @@ export function AvailabilityProvider({
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [blockedDates, readOnly]);
+  }, [blockedDates, readOnly, isInitialLoad]);
 
   // ==========================================================================
   // ACTIONS

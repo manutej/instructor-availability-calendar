@@ -396,8 +396,24 @@ class SupabaseAdapter implements PersistenceAdapter {
   }
 
   async exportData(): Promise<string> {
-    // Use localStorage adapter's export (already works with Map serialization fix)
-    return this.localAdapter.exportData();
+    // Load from Supabase first, fallback to localStorage
+    const availability = await this.loadAvailability();
+    const profile = await this.loadProfile();
+
+    // CRITICAL: Convert Maps to arrays before JSON serialization
+    const serializedAvailability = availability
+      ? this.prepareForSerialization(availability)
+      : null;
+
+    const exportData = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      source: 'supabase', // Indicate data came from cloud
+      availability: serializedAvailability,
+      profile,
+    };
+
+    return JSON.stringify(exportData, null, 2);
   }
 
   async importData(jsonData: string): Promise<void> {
