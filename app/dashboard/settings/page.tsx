@@ -8,11 +8,12 @@
  * - Generate public calendar URL
  * - Copy-to-clipboard functionality
  * - Display current slug and URL
+ * - Syncs profile to Supabase for cross-device access
  *
- * MVP Implementation:
- * - localStorage for slug storage
- * - No authentication (Phase 2)
- * - No database persistence (Phase 2)
+ * Implementation:
+ * - Uses persistence adapter for localStorage + Supabase sync
+ * - Profile saved to instructor_profiles table with slug
+ * - Enables public calendar sharing via /calendar/[slug]
  *
  * @see specs/SPEC-V2.md Lines 104-108 for shareable URL requirements
  * @see docs/IMPLEMENTATION-PLAN-V2.md Phase 7 for implementation details
@@ -26,7 +27,8 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import slugify from 'slugify';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Cloud, CloudOff } from 'lucide-react';
+import { persistence } from '@/lib/data/persistence';
 
 const STORAGE_KEY = 'cal_instructor_profile';
 
@@ -44,19 +46,51 @@ export default function SettingsPage() {
   });
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle');
 
-  // Load settings from localStorage on mount
+  // Load settings from persistence adapter (Supabase or localStorage)
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setSettings(JSON.parse(stored));
+    const loadSettings = async () => {
+      try {
+        // Try loading from persistence adapter (includes Supabase)
+        const profile = await persistence.loadProfile();
+        if (profile) {
+          setSettings({
+            slug: profile.slug || '',
+            displayName: profile.displayName || '',
+            email: profile.email || '',
+          });
+          setSyncStatus('synced');
+          return;
+        }
+
+        // Fallback to localStorage for backward compatibility
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          setSettings(parsed);
+          // Sync existing localStorage data to Supabase
+          if (parsed.slug) {
+            await persistence.saveProfile({
+              id: 'default',
+              slug: parsed.slug,
+              displayName: parsed.displayName || '',
+              email: parsed.email || '',
+              isPublic: true,
+              publicUrl: `${window.location.origin}/calendar/${parsed.slug}`,
+            });
+            setSyncStatus('synced');
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+        setSyncStatus('error');
       }
-    } catch (error) {
-      console.error('Failed to load settings:', error);
-    }
+    };
+
+    loadSettings();
   }, []);
 
   // Generate public URL
@@ -88,16 +122,33 @@ export default function SettingsPage() {
     setSettings((prev) => ({ ...prev, email: e.target.value }));
   };
 
-  // Save settings to localStorage
-  const handleSave = () => {
+  // Save settings to localStorage AND Supabase
+  const handleSave = async () => {
     if (typeof window === 'undefined') return;
 
     setIsSaving(true);
+    setSyncStatus('syncing');
     try {
+      // Save to localStorage for immediate local access
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      setTimeout(() => setIsSaving(false), 300);
+
+      // Sync to Supabase for cross-device access and public calendar
+      const baseUrl = window.location.origin;
+      await persistence.saveProfile({
+        id: 'default',
+        slug: settings.slug,
+        displayName: settings.displayName,
+        email: settings.email,
+        isPublic: true,
+        publicUrl: `${baseUrl}/calendar/${settings.slug}`,
+      });
+
+      setSyncStatus('synced');
+      console.log('[Settings] Profile saved to localStorage and Supabase');
     } catch (error) {
       console.error('Failed to save settings:', error);
+      setSyncStatus('error');
+    } finally {
       setIsSaving(false);
     }
   };
@@ -177,10 +228,32 @@ export default function SettingsPage() {
             </p>
           </div>
 
-          {/* Save Button */}
-          <Button onClick={handleSave} disabled={isSaving || !settings.slug}>
-            {isSaving ? 'Saving...' : 'Save Settings'}
-          </Button>
+          {/* Save Button with Sync Status */}
+          <div className="flex items-center gap-4">
+            <Button onClick={handleSave} disabled={isSaving || !settings.slug}>
+              {isSaving ? 'Saving...' : 'Save Settings'}
+            </Button>
+
+            {/* Cloud Sync Status Indicator */}
+            {syncStatus === 'synced' && (
+              <span className="flex items-center text-sm text-green-600 dark:text-green-400">
+                <Cloud className="h-4 w-4 mr-1" />
+                Synced to cloud
+              </span>
+            )}
+            {syncStatus === 'syncing' && (
+              <span className="flex items-center text-sm text-blue-600 dark:text-blue-400">
+                <Cloud className="h-4 w-4 mr-1 animate-pulse" />
+                Syncing...
+              </span>
+            )}
+            {syncStatus === 'error' && (
+              <span className="flex items-center text-sm text-red-600 dark:text-red-400">
+                <CloudOff className="h-4 w-4 mr-1" />
+                Sync failed
+              </span>
+            )}
+          </div>
         </div>
       </Card>
 

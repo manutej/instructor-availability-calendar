@@ -6,6 +6,7 @@
  * Features:
  * - GET endpoint returning blocked dates by instructor slug
  * - 5-minute ISR caching for performance
+ * - Supabase database query for cross-device persistence
  * - Error handling for missing/inactive calendars
  * - JSON serialization of Map data structure
  *
@@ -14,7 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { loadBlockedDates } from '@/lib/utils/storage';
+import { createClient } from '@supabase/supabase-js';
 import { InstructorProfile, PublicCalendarData } from '@/types/instructor';
 
 // Enable ISR with 5-minute revalidation
@@ -27,15 +28,35 @@ interface RouteParams {
 }
 
 /**
+ * Create a server-side Supabase client for API routes
+ * Uses environment variables directly (server-side safe)
+ */
+function getServerSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('[API] Supabase not configured');
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: false, // Server-side: no session persistence
+    },
+  });
+}
+
+/**
  * GET /api/availability/[slug]
  *
  * Returns public calendar data for a given instructor slug.
  * Data includes instructor profile, blocked dates, and last update timestamp.
  *
- * MVP Implementation:
- * - Loads from localStorage (server-side fallback returns empty data)
- * - Single hardcoded instructor profile
- * - Future: Database query by slug
+ * Implementation:
+ * - Queries Supabase by slug for cross-device persistence
+ * - Falls back to empty calendar if instructor not found
+ * - Uses the availability_with_profile view for efficient joins
  *
  * @returns PublicCalendarData JSON response
  * @status 200 - Calendar found
@@ -48,40 +69,94 @@ export async function GET(
   const { slug } = await params;
 
   try {
-    // MVP: Load blocked dates from localStorage
-    // Note: SSR environment returns empty Map, client-side will have actual data
-    const blockedDates = loadBlockedDates();
-
-    // MVP: Hardcoded instructor profile
-    // Future: Database query: SELECT * FROM instructors WHERE slug = $1 AND isPublic = true
+    const supabase = getServerSupabaseClient();
     const baseUrl = process.env.NEXT_PUBLIC_URL || 'http://localhost:3000';
-    const instructorProfile: InstructorProfile = {
-      id: 'instructor-1',
-      slug: slug,
-      displayName: 'Instructor',  // TODO: Load from database/settings
-      email: 'instructor@example.com',  // TODO: Load from database/settings
-      publicUrl: `${baseUrl}/calendar/${slug}`,
-      isPublic: true,
-    };
 
-    // Check if calendar is public (future: database check)
-    if (!instructorProfile.isPublic) {
+    if (!supabase) {
+      console.error('[API] Supabase not configured - cannot serve public calendar');
+      return NextResponse.json(
+        { error: 'Calendar service unavailable' },
+        { status: 503 }
+      );
+    }
+
+    // Query instructor profile by slug
+    console.log(`[API] Fetching calendar for slug: ${slug}`);
+    const { data: profile, error: profileError } = await supabase
+      .from('instructor_profiles')
+      .select('*')
+      .eq('slug', slug)
+      .single();
+
+    if (profileError || !profile) {
+      console.log(`[API] No profile found for slug: ${slug}`, profileError);
+      return NextResponse.json(
+        { error: 'Calendar not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if calendar is public
+    if (!profile.is_public) {
+      console.log(`[API] Calendar not public for slug: ${slug}`);
       return NextResponse.json(
         { error: 'Calendar not available' },
         { status: 404 }
       );
     }
 
-    // Convert Map to array for JSON serialization
-    const blockedDatesArray = Array.from(blockedDates.entries()).map(
-      ([dateKey, blockedDate]) => [dateKey, blockedDate] as [string, typeof blockedDate]
-    );
+    // Fetch availability data by instructor_id
+    const { data: availability, error: availError } = await supabase
+      .from('instructor_availability')
+      .select('availability_data, updated_at')
+      .eq('instructor_id', profile.instructor_id)
+      .single();
+
+    // Build instructor profile for response
+    const instructorProfile: InstructorProfile = {
+      id: profile.id,
+      slug: profile.slug,
+      displayName: profile.display_name,
+      email: profile.email || '',
+      publicUrl: `${baseUrl}/calendar/${profile.slug}`,
+      isPublic: profile.is_public,
+    };
+
+    // Convert availability data to blocked dates array
+    let blockedDatesArray: Array<[string, any]> = [];
+    let lastUpdated = new Date().toISOString();
+
+    if (availability && availability.availability_data) {
+      const availData = availability.availability_data as any;
+      lastUpdated = availability.updated_at || availData.lastModified || lastUpdated;
+
+      // Convert blockedDates object to array format expected by client
+      if (availData.blockedDates) {
+        blockedDatesArray = Object.entries(availData.blockedDates).map(
+          ([dateKey, dateData]: [string, any]) => {
+            // Handle v2 format with slots
+            if (dateData && 'slots' in dateData) {
+              return [dateKey, {
+                date: dateKey,
+                status: dateData.fullDayBlock ? 'full' : 'partial',
+                eventName: dateData.eventName,
+                slots: dateData.slots, // Keep slots for detailed view
+              }];
+            }
+            // Handle v1 format (date, status, eventName)
+            return [dateKey, dateData];
+          }
+        );
+      }
+    }
 
     const response: PublicCalendarData = {
       instructor: instructorProfile,
       blockedDates: blockedDatesArray,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated,
     };
+
+    console.log(`[API] ✓ Returning calendar for ${profile.display_name} with ${blockedDatesArray.length} blocked dates`);
 
     return NextResponse.json(response, {
       headers: {
@@ -89,7 +164,7 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error(`Error fetching calendar for slug "${slug}":`, error);
+    console.error(`[API] Error fetching calendar for slug "${slug}":`, error);
     return NextResponse.json(
       { error: 'Calendar not found' },
       { status: 404 }
